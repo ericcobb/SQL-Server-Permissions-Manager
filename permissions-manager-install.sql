@@ -490,7 +490,7 @@ AS
 										If 0: Generates the permissions script to be reviewed/run manually.
 			@CopySID - OPTIONAL - Generates the SID of a SQL user as part of the script
 			@DestinationDatabase - OPTIONAL - Database to apply Permissions Snapshot to; defaults to the specified @DBName.
-			@AltUserNames - OPTIONAL - Used for cloning a specified user's permissions to a new user. (see [perms].[clonePerms] procedure)
+			@AltUserNames - OPTIONAL - Used for cloning a specified user's permissions to a new user. (see [perms].[clonePermissions] procedure)
 				VALUE FOR @AltUserNames = 
 				<altusers>
 					<user>
@@ -712,8 +712,8 @@ BEGIN
 	SELECT 'IF NOT EXISTS (SELECT * FROM sys.database_permissions '
 		+ 'WHERE class_desc = ''OBJECT_OR_COLUMN'' '
 		+ 'AND grantee_principal_id = DATABASE_PRINCIPAL_ID(' + QUOTENAME(au.NewUser,'''') + ') '
-		+ 'AND PermissionName = ' + QUOTENAME(PermissionName,'''')
-		+ ' AND StateDesc = ' + QUOTENAME(StateDesc,'''')
+		+ 'AND Permission_Name = ' + QUOTENAME(PermissionName,'''')
+		+ ' AND State_Desc = ' + QUOTENAME(StateDesc,'''')
 		+ ' AND major_id = OBJECT_ID(N' + QUOTENAME(ObjectName,'''') + ') '
 		+ CASE
 			WHEN ColumNname IS NULL THEN SPACE(0)
@@ -748,8 +748,8 @@ BEGIN
 	SELECT 'IF NOT EXISTS (SELECT * FROM sys.database_permissions '
 		+ 'WHERE class_desc = ''SCHEMA'' '
 		+ 'AND grantee_principal_id = DATABASE_PRINCIPAL_ID(' + QUOTENAME(au.NewUser,'''') + ') '
-		+ 'AND PermissionName = ' + QUOTENAME(PermissionName,'''')
-		+ ' AND StateDesc = ' + QUOTENAME(StateDesc,'''')
+		+ 'AND Permission_Name = ' + QUOTENAME(PermissionName,'''')
+		+ ' AND State_Desc = ' + QUOTENAME(StateDesc,'''')
 		+ ' AND major_id = SCHEMA_ID(N' + QUOTENAME(SchemaName,'''') + ')) '
 		+ CASE
 			WHEN [State]<> 'W' THEN StateDesc + SPACE(1)
@@ -775,8 +775,8 @@ BEGIN
 	SELECT 'IF NOT EXISTS (SELECT * FROM sys.database_permissions '
 		+ 'WHERE class_desc = ''DATABASE'' '
 		+ 'AND grantee_principal_id = DATABASE_PRINCIPAL_ID(' + QUOTENAME(au.NewUser,'''') + ') '
-		+ 'AND PermissionName = ' + QUOTENAME(PermissionName,'''')
-		+ ' AND StateDesc = ' + QUOTENAME(StateDesc,'''')
+		+ 'AND Permission_Name = ' + QUOTENAME(PermissionName,'''')
+		+ ' AND State_Desc = ' + QUOTENAME(StateDesc,'''')
 		+ ' AND major_id = 0) '
 		+ CASE
 			WHEN [State]<> 'W' THEN StateDesc + SPACE(1)
@@ -842,11 +842,11 @@ GO
 
 
 --If our procedure doesn't already exist, create one with a dummy query to be overwritten.
-IF OBJECT_ID('perms.clonePerms') IS NULL
-  EXEC sp_executesql N'CREATE PROCEDURE perms.clonePerms AS SELECT 1;';
+IF OBJECT_ID('perms.clonePermissions') IS NULL
+  EXEC sp_executesql N'CREATE PROCEDURE perms.clonePermissions AS SELECT 1;';
 GO
 
-ALTER PROCEDURE [perms].[clonePerms]
+ALTER PROCEDURE [perms].[clonePermissions]
 	@UserName NVARCHAR(256)
 	,@NewUser NVARCHAR(256)
 	,@logintype CHAR(1) = 'U'
@@ -879,7 +879,7 @@ AS
 
 	Usage:	
 			--Generate a script to create User2 with all of the permissions that User1 has, but do not automatically run the generated script;
-			EXEC [perms].[clonePerms] @UserName = 'user1', @NewUser = 'user2', @CreateLogins = 1, @ExecuteScript = 0
+			EXEC [perms].[clonePermissions] @UserName = 'user1', @NewUser = 'user2', @CreateLogins = 1, @ExecuteScript = 0
 
 ***************************************************************************/
 
@@ -921,7 +921,7 @@ BEGIN
 		BEGIN
 			-- 1) Write our SQL string that calls the PROC that actually applies the permissions.
 			SET @SQL = '
-			EXEC [perms].[applyPerms]
+			EXEC [perms].[applyPermissions]
 				@DBName = ['+@db+'],
 				@User = ['+@UserName+'],
 				@CreateLogins = '+CAST(@CreateLogins AS CHAR(1))+',
@@ -1026,7 +1026,7 @@ BEGIN
 
 
 		COMMIT TRANSACTION
-	END TRY
+		END TRY
 	BEGIN CATCH
 		ROLLBACK TRANSACTION
 	END CATCH
