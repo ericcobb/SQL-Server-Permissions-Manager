@@ -1326,52 +1326,6 @@ GO
 
 
 --If our view doesn't already exist, create one with a dummy query to be overwritten.
---IF OBJECT_ID('perms.vwPerms_listCurrentUserPermissions') IS NULL
---  EXEC sp_executesql N'CREATE VIEW [perms].[vwPerms_listCurrentUserPermissions] AS SELECT [DB] = DB_NAME();';
---GO
-
---ALTER VIEW perms.vwPerms_listCurrentUserPermissions
---AS
---	/**************************************************************************
---		Author: Eric Cobb - http://www.sqlnuggets.com/
---		License:
---				MIT License
---				Copyright (c) 2017 Eric Cobb
---				View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
---		Purpose: 
---				This view returns a list of the most recent Permissions Snapshots for each database, displaying users and their assigned permissions
-					
---	***************************************************************************/
-
---	SELECT TOP 100 PERCENT [SnapshotID] = ID, [DatabaseName], [CaptureDate]
---			,rm.[username]
---			,rm.[PermType]
---			,rm.[Perm]
---	FROM(SELECT ID, [DatabaseName], [CaptureDate] 
---			,ROW_NUMBER() OVER (PARTITION BY [DatabaseName] ORDER BY [CaptureDate] DESC) AS rn
---		FROM perms.snapshots
---		) s
---	INNER JOIN (SELECT [PermType] = 'Role Memberships', [Perm] = rolename, username, SnapshotID 
---				FROM perms.RoleMemberships
---				UNION 
---				SELECT [PermType] = 'Database Permission', [Perm] = StateDesc + ' ' + PermissionName, username, SnapshotID 
---				FROM perms.DatabasePermissions
---				UNION 
---				SELECT [PermType] = 'Schema Permission', [Perm] = StateDesc + ' ' + PermissionName + ' ON ['  + schemaname + ']', username, SnapshotID 
---				FROM perms.SchemaPermissions
---				UNION 
---				SELECT [PermType] = 'Object Permission', [Perm] = CASE WHEN columnname IS NULL THEN SPACE(1) ELSE ' (' + QUOTENAME(columnname) + ')' END
---																	+ StateDesc + ' ' + PermissionName + ' ON [' + schemaname + '.' + objectname + ']'
---														, username, SnapshotID 
---				FROM perms.ObjectPermissions
---				) rm ON rm.SnapshotID = s.ID
---	WHERE s.rn = 1
---	ORDER BY [DatabaseName],[username],[PermType],[Perm];
-
---GO
-
-
---If our view doesn't already exist, create one with a dummy query to be overwritten.
 IF OBJECT_ID('perms.vwPerms_listCurrentDBPermissions') IS NULL
   EXEC sp_executesql N'CREATE VIEW [perms].[vwPerms_listCurrentDBPermissions] AS SELECT [DB] = DB_NAME();';
 GO
