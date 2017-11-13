@@ -1,4 +1,4 @@
-# SQL-Server-Permissions-Manager
+# SQL Server Permissions Manager
 SQL Server Permission Manager is a suite of scripts that allows you to take "snapshots" of users and permissions across any or all of the databases on your SQL Server.  These snapshots then allow you to:
 
 - Restore existing user permissions to a previous snapshot
