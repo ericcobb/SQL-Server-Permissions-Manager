@@ -185,7 +185,7 @@ AS
 
 	Usage:	
 			--Take a Permissions Snapshot for the MyDB database
-			EXEC [dbo].[createSnapshot] @DBName='MyDB';
+			EXEC [perms].[createSnapshot] @DBName='MyDB';
 ***************************************************************************/
 
 BEGIN
@@ -406,7 +406,7 @@ AS
 
 	Usage:	
 			--Take a Permissions Snapshot for all databases.
-			EXEC [dbo].[snapshotAllDBs];
+			EXEC [perms].[snapshotAllDBs];
 ***************************************************************************/
 
 BEGIN
@@ -504,7 +504,7 @@ AS
 
 	Usage:	
 			--Apply the most recent Permissions Snapshot to the MyDB database.
-			EXEC [dbo].[applyPermissions] @DBName='MyDB';
+			EXEC [perms].[applyPermissions] @DBName='MyDB';
 
 ***************************************************************************/
 
