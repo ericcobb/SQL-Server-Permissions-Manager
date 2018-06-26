@@ -1343,7 +1343,7 @@ AS
 				This view returns a list of the most recent Permissions Snapshots for each database, displaying users and their assigned permissions.					
 	***************************************************************************/
 
-	SELECT TOP 100 PERCENT [SnapshotID] = ID, [CaptureDate], [DatabaseName]
+	SELECT [SnapshotID] = ID, [CaptureDate], [DatabaseName]
 			,rm.[username]
 			,rm.[PermType]
 			,rm.[Perm]
@@ -1393,8 +1393,85 @@ AS
 							,[SnapshotID]
 					FROM perms.DatabasePermissions
 					) rm ON rm.[SnapshotID] = s.ID
-	WHERE s.rn = 1
-	ORDER BY [DatabaseName],[username],[PermType],[Perm];
+	WHERE s.rn = 1;
 
 
 GO
+
+
+--If our view doesn't already exist, create one with a dummy query to be overwritten.
+IF OBJECT_ID('perms.vwPerms_listCurrentDBPermissions_Filtered') IS NULL
+  EXEC sp_executesql N'CREATE VIEW [perms].[vwPerms_listCurrentDBPermissions_Filtered] AS SELECT [DB] = DB_NAME();';
+GO
+
+
+ALTER VIEW [perms].[vwPerms_listCurrentDBPermissions_Filtered]
+AS
+	/**************************************************************************
+		Author: Eric Cobb - http://www.sqlnuggets.com/
+		License:
+				MIT License
+				Copyright (c) 2017 Eric Cobb
+				View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+		Purpose: 
+				This view returns a list of the most recent Permissions Snapshots for each database, displaying users and their assigned permissions.
+				It filters out the System databases, and the GRANT CONNECT permission 					
+	***************************************************************************/
+
+	SELECT [SnapshotID] = ID, [CaptureDate], [DatabaseName]
+			,rm.[username]
+			,rm.[PermType]
+			,rm.[Perm]
+	FROM(SELECT ID, [DatabaseName], [CaptureDate] 
+			,ROW_NUMBER() OVER (PARTITION BY [DatabaseName] ORDER BY [CaptureDate] DESC) AS rn
+		FROM perms.snapshots
+		) s
+		INNER JOIN (SELECT [PermType] = 'User-Login Mapping'
+							,[UserName] 
+							,[Perm] = 'USER ['+[UserName]+'] FROM LOGIN ' + [loginname]
+							,[SnapshotID]
+					 FROM [perms].[Users] u
+					UNION
+					SELECT [PermType] = CASE WHEN r.[roletype] = 'R' THEN 'Database Role' ELSE ' Application Role' END
+							,[UserName] = [rolename]
+							,[Perm] = NULL
+							,[SnapshotID]
+					FROM [perms].[Roles] r
+					UNION 
+					SELECT [PermType] = 'Role Memberships'
+							,[UserName]
+							,[Perm] = [rolename]
+							,[SnapshotID]
+					FROM [perms].[RoleMemberships] rm
+					UNION
+					SELECT [PermType] = 'Object Permission'
+							,[UserName]
+							,[Perm] = CASE WHEN state <> 'W' THEN [StateDesc] + SPACE(1) ELSE 'GRANT ' END
+										+ [PermissionName] 
+										+ ' ON [' +  [schemaname] + '].[' + [objectname] + '] TO [' + [username] + ']'
+										+ CASE WHEN [state] <> 'W' THEN SPACE(0) ELSE ' (WITH GRANT OPTION)' END
+							,[SnapshotID]
+					FROM [perms].[ObjectPermissions] op
+					UNION 
+					SELECT [PermType] = 'Schema Permission'
+							,[UserName]
+							,[Perm] = CASE WHEN [state] <> 'W' THEN [StateDesc] + SPACE(1) ELSE 'GRANT ' END
+										+ [PermissionName] 
+										+ ' ON [' + [schemaname] + '] TO [' + [username] + ']'
+										+ CASE WHEN [state] <> 'W' THEN SPACE(0) ELSE ' (WITH GRANT OPTION)' END
+							,[SnapshotID]
+					FROM [perms].[SchemaPermissions] 
+					UNION
+					SELECT [PermType] = 'Database Permission'
+							,[UserName]
+							,[Perm] = StateDesc + ' ' + PermissionName
+							,[SnapshotID]
+					FROM perms.DatabasePermissions
+					) rm ON rm.[SnapshotID] = s.ID
+	WHERE s.rn = 1
+	AND [DatabaseName] NOT IN ('Master','Model','MSDB','TempDB','SSISDB')
+	AND [Perm] NOT IN ('GRANT CONNECT');
+
+
+GO
+
