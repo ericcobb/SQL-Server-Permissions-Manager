@@ -154,17 +154,31 @@ END
 GO
 
 
+IF OBJECT_ID('perms.ServerPermissions') IS NULL
+BEGIN
+	CREATE TABLE [perms].[ServerPermissions](
+		[ID] [bigint] IDENTITY(1,1) NOT NULL CONSTRAINT [PK_Perms_ServerPermissions] PRIMARY KEY CLUSTERED ,
+		[SnapshotID] [bigint] NOT NULL,
+		[PermissionName] [nvarchar](128) NOT NULL,
+		[PermissionTypeDesc] [nvarchar](60) NOT NULL,
+		[LoginName] [nvarchar](128) NOT NULL
+	);
+
+	ALTER TABLE [perms].[ServerPermissions]  WITH CHECK ADD  CONSTRAINT [FK_Perms_ServerPermissions_Snapshot] FOREIGN KEY([SnapshotID]) REFERENCES [perms].[Snapshots] ([ID]);
+END
+GO
+
+
 /**************************************************************************
 	Create Stored Procedures
 ***************************************************************************/
 
-
 --If our procedure doesn't already exist, create one with a dummy query to be overwritten.
-IF OBJECT_ID('perms.createSnapshot') IS NULL
-  EXEC sp_executesql N'CREATE PROCEDURE perms.createSnapshot AS	SELECT 1;';
+IF OBJECT_ID('perms.createDatabaseSnapshot') IS NULL
+  EXEC sp_executesql N'CREATE PROCEDURE perms.createDatabaseSnapshot AS	SELECT 1;';
 GO
 
-ALTER PROCEDURE [perms].[createSnapshot]
+ALTER PROCEDURE [perms].[createDatabaseSnapshot]
 (
 	@DBName	NVARCHAR(128)
 )
@@ -175,7 +189,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to create a snapshot of the current permissions in a given database
@@ -185,7 +199,7 @@ AS
 
 	Usage:	
 			--Take a Permissions Snapshot for the MyDB database
-			EXEC [perms].[createSnapshot] @DBName='MyDB';
+			EXEC [perms].[createDatabaseSnapshot] @DBName='MyDB';
 ***************************************************************************/
 
 BEGIN
@@ -233,9 +247,10 @@ BEGIN
 	WHERE dp.type_desc IN (''WINDOWS_GROUP'',''WINDOWS_USER'',''SQL_USER'')
 	AND dp.name NOT IN (''dbo'',''guest'',''INFORMATION_SCHEMA'',''sys'');
 	' + @CRLF
+	
 
 	/* 
-		##-Roles-##
+		##-Database Roles-##
 	*/
 	CREATE TABLE #Roles(
 		[RoleName] [nvarchar](128) NOT NULL,
@@ -356,7 +371,7 @@ BEGIN
 
 	INSERT INTO [perms].[Users]([SnapshotID], [UserName], [UserType], [UserTypeDesc], [DefaultSchema], [LoginName], [LoginType], [isDisabled], [SID], [PasswordHash])
 	SELECT @SnapshotID, [UserName], [UserType], [UserTypeDesc], [DefaultSchema], [LoginName], [LoginType], [isDisabled], [SID], [PasswordHash] FROM #Users;
-
+	
 	INSERT INTO [perms].[Roles] ([SnapshotID], [RoleName], [RoleType], [RoleTypeDesc], [DefaultSchema])
 	SELECT @SnapshotID, [RoleName], [RoleType], [RoleTypeDesc], [DefaultSchema] FROM #Roles;
 
@@ -382,13 +397,28 @@ BEGIN
 END
 GO
 
+--If the old procedure exists, modify it to call the new procedure.
+IF OBJECT_ID('perms.createSnapshot') IS NOT NULL
+EXEC sp_executesql N'
+  ALTER PROCEDURE [perms].[createSnapshot]
+  AS
+  BEGIN
+  /*
+	The [perms].[createSnapshot] procedure has been depricated, use [perms].[createDatabaseSnapshot] instead
+  */
+  EXEC [perms].[createDatabaseSnapshot] @DBName = @DBName;
+  END;';
 
---If our procedure doesn't already exist, create one with a dummy query to be overwritten.
-IF OBJECT_ID('perms.snapshotAllDBs') IS NULL
-  EXEC sp_executesql N'CREATE PROCEDURE perms.snapshotAllDBs AS	SELECT 1;';
 GO
 
-ALTER PROCEDURE [perms].[snapshotAllDBs]
+
+--If our procedure doesn't already exist, create one with a dummy query to be overwritten.
+IF OBJECT_ID('perms.snapshotAllDatabases') IS NULL
+  EXEC sp_executesql N'CREATE PROCEDURE perms.snapshotAllDatabases AS	SELECT 1;';
+GO
+
+ALTER PROCEDURE [perms].[snapshotAllDatabases]
+	@IncludeSysDatabases bit = 1
 AS
 
 /**************************************************************************
@@ -396,7 +426,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to create a snapshot of the current permissions in all databases on a server.
@@ -406,7 +436,7 @@ AS
 
 	Usage:	
 			--Take a Permissions Snapshot for all databases.
-			EXEC [perms].[snapshotAllDBs];
+			EXEC [perms].[snapshotAllDatabases];
 ***************************************************************************/
 
 BEGIN
@@ -421,13 +451,23 @@ BEGIN
 	DECLARE @CurrentID INT;
 	DECLARE @CurrentDatabaseName NVARCHAR(128);
 
-	INSERT INTO @tmpDatabases (DatabaseName, Completed)
-	SELECT [Name], 0
-	FROM sys.databases
-	WHERE state = 0
-	AND source_database_id IS NULL
-	ORDER BY [Name] ASC
-
+	IF @IncludeSysDatabases = 1
+		BEGIN
+			INSERT INTO @tmpDatabases (DatabaseName, Completed)
+			SELECT [Name], 0
+			FROM sys.databases
+			WHERE state = 0
+			AND source_database_id IS NULL
+			ORDER BY [Name] ASC
+		END
+		ELSE BEGIN
+			INSERT INTO @tmpDatabases (DatabaseName, Completed)
+			SELECT [Name], 0
+			FROM sys.databases
+			WHERE state = 0 AND database_id > 4
+			AND source_database_id IS NULL
+			ORDER BY [Name] ASC
+		END
 
 	WHILE EXISTS (SELECT * FROM @tmpDatabases WHERE Completed = 0)
 	BEGIN
@@ -437,7 +477,7 @@ BEGIN
 		WHERE Completed = 0
 		ORDER BY ID ASC
 
-		EXEC [perms].[createSnapshot] @DBName = @CurrentDatabaseName
+		EXEC [perms].[createDatabaseSnapshot] @DBName = @CurrentDatabaseName
 
 		-- Update that the database is completed
 		UPDATE @tmpDatabases
@@ -448,6 +488,93 @@ BEGIN
 		SET @CurrentID = NULL
 		SET @CurrentDatabaseName = NULL
 	END
+END
+GO
+
+--If the old procedure exists, modify it to call the new procedure.
+IF OBJECT_ID('perms.snapshotAllDBs') IS NOT NULL
+EXEC sp_executesql N'
+  ALTER PROCEDURE [perms].[snapshotAllDBs]
+  AS
+  BEGIN
+  /*
+	The [perms].[snapshotAllDBs] procedure has been depricated, use [perms].[snapshotAllDatabases] instead
+  */
+  EXEC [perms].[snapshotAllDatabases];
+  END;';
+
+GO
+
+
+--If our procedure doesn't already exist, create one with a dummy query to be overwritten.
+IF OBJECT_ID('perms.createSeverSnapshot') IS NULL
+  EXEC sp_executesql N'CREATE PROCEDURE perms.createSeverSnapshot AS SELECT 1;';
+GO
+
+ALTER PROCEDURE [perms].[createSeverSnapshot]
+
+AS
+
+/**************************************************************************
+	Author: Eric Cobb - http://www.sqlnuggets.com/
+		License:
+			MIT License
+			Copyright (c) 2017-2018 Eric Cobb
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
+			
+	Purpose: 
+			This stored procedure is used to create a snapshot of the current Server level permissions on this SQL Server
+
+	Parameters:
+			NONE
+
+	Usage:	
+			--Take a Permissions Snapshot of this SQL Sever
+			EXEC [perms].[createSeverSnapshot];
+***************************************************************************/
+
+BEGIN
+
+	SET NOCOUNT ON;
+	
+	DECLARE @SnapshotID BIGINT;
+
+	INSERT INTO [perms].[Snapshots] (DatabaseName) VALUES (N'{Server-Permissions}');
+	SELECT @SnapshotID = SCOPE_IDENTITY();
+	
+	--server level roles	
+	INSERT INTO [perms].[ServerPermissions]
+           ([SnapshotID]
+           ,[PermissionName]
+           ,[PermissionTypeDesc]
+           ,[LoginName])
+	SELECT @SnapshotID
+			,r.name
+			,r.type_desc
+			,m.name
+	FROM sys.server_role_members  rm
+	INNER JOIN sys.server_principals AS r ON rm.role_principal_id = r.principal_id  
+	INNER JOIN sys.server_principals AS m ON rm.member_principal_id = m.principal_id
+	WHERE rm.member_principal_id > 1
+
+	--server level permissions	
+	INSERT INTO [perms].[ServerPermissions]
+           ([SnapshotID]
+           ,[PermissionName]
+           ,[PermissionTypeDesc]
+           ,[LoginName])
+	SELECT @SnapshotID
+			,SrvPerm.state_desc +' '+ SrvPerm.permission_name
+			,N'SERVER_PERMISSION'
+			,SP.name	
+	FROM sys.server_permissions AS SrvPerm 
+	INNER JOIN sys.server_principals AS SP ON SrvPerm.grantee_principal_id = SP.principal_id 
+	WHERE   SP.type IN ( 'S', 'U', 'G' ) 
+	AND SP.name NOT LIKE '##%##'
+	AND SP.name NOT LIKE 'NT AUTHORITY%'
+	AND SP.name NOT LIKE 'NT SERVICE%'
+	AND SP.name <> ('sa');
+
 END
 GO
 
@@ -473,7 +600,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to apply a Permissions Snapshot to a specified database; 
@@ -586,7 +713,7 @@ BEGIN
 
 	INSERT INTO #SQLResults(STMT) VALUES ('')
 
-	INSERT INTO #SQLResults(STMT) VALUES ('USE ' + @DestinationDatabase + ';')
+	INSERT INTO #SQLResults(STMT) VALUES ('USE [' + @DestinationDatabase + '];')
 
 	INSERT INTO #SQLResults(STMT) VALUES ('')
 
@@ -821,7 +948,7 @@ BEGIN
 	
 		WHILE @@FETCH_STATUS = 0
 		BEGIN
-			SELECT @sqlSTMT_prep = 'USE ' + @DestinationDatabase + '; ';
+			SELECT @sqlSTMT_prep = 'USE [' + @DestinationDatabase + ']; ';
 			SELECT @sqlSTMT_prep = @sqlSTMT_prep + @sqlSTMT;
 			exec sp_ExecuteSQL @sqlSTMT_prep;
 			--SELECT @sqlSTMT_prep;
@@ -861,7 +988,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to copy all of the permissions from a given user and assign those permissions to another user.
@@ -964,7 +1091,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to purge old Permission Snapshots from the database
@@ -1024,6 +1151,10 @@ BEGIN
 		FROM [perms].[Snapshots] p
 		INNER JOIN @snapshots s ON s.[SnapshotID] = p.[ID];
 
+		DELETE p
+		FROM [perms].[ServerPermissions] p
+		INNER JOIN @snapshots s ON s.[SnapshotID] = p.[SnapshotID];
+
 
 		COMMIT TRANSACTION
 		END TRY
@@ -1050,7 +1181,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to drop all users from a database.
@@ -1137,7 +1268,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to remove a user from all databases, then drop the login for that user.
@@ -1193,7 +1324,7 @@ BEGIN
  
 	--get list of databases this user has access to
 	--TODO: I don't like using sp_MSforeachdb, find a replacement query
-	SET @sql ='SELECT ''?'' AS DBName FROM ?.sys.database_principals WHERE name=''' + @UserName + ''''
+	SET @sql ='SELECT ''[?]'' AS DBName FROM [?].sys.database_principals WHERE name=''' + @UserName + ''''
 	INSERT INTO @dblist
 	EXEC sp_MSforeachdb @command1=@sql
 		
@@ -1207,7 +1338,8 @@ BEGIN
 			WHILE @@FETCH_STATUS = 0
 			BEGIN
 				SET @sql = N'USE ' + @DBName + ';'
-				SET @sql = @sql + N'DROP USER ['+@UserName+']'
+				SET @sql = @sql + N'
+				DROP USER ['+@UserName+'];'
 				PRINT 'Dropping user from ' +	+ @DBName + ';'
 		
 				IF @ExecuteScript = 1
@@ -1258,7 +1390,7 @@ AS
 		License:
 			MIT License
 			Copyright (c) 2017 Eric Cobb
-			View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 			
 	Purpose: 
 			This stored procedure is used to remove all users from a database,
@@ -1292,6 +1424,45 @@ END
 GO
 
 
+--If our procedure doesn't already exist, create one with a dummy query to be overwritten.
+IF OBJECT_ID('perms.snapshotEverything') IS NULL
+  EXEC sp_executesql N'CREATE PROCEDURE perms.snapshotEverything AS SELECT 1;';
+GO
+
+ALTER PROCEDURE [perms].[snapshotEverything]
+
+AS
+
+/**************************************************************************
+	Author: Eric Cobb - http://www.sqlnuggets.com/
+		License:
+			MIT License
+			Copyright (c) 2017-2018 Eric Cobb
+			View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
+			
+	Purpose: 
+			This stored procedure is used to create a snapshot of all of the current Server & Database level permissions on this SQL Server
+
+	Parameters:
+			NONE
+
+	Usage:	
+			--Take a Permissions Snapshot of this SQL Sever
+			EXEC [perms].[snapshotEverything];
+***************************************************************************/
+
+BEGIN
+	
+	SET NOCOUNT ON;
+	--snapshot the server permissions
+	EXEC [perms].[createSeverSnapshot];
+	--snapshot all of the database permissions
+    EXEC [perms].[snapshotAllDatabases];
+
+END
+GO
+
+
 /**************************************************************************
 	Create Views
 ***************************************************************************/
@@ -1309,7 +1480,7 @@ AS
 		License:
 				MIT License
 				Copyright (c) 2017 Eric Cobb
-				View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+				View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 		Purpose: 
 				This view returns a list of the most recent Permissions Snapshots for each database
 					
@@ -1338,12 +1509,12 @@ AS
 		License:
 				MIT License
 				Copyright (c) 2017 Eric Cobb
-				View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
+				View full license disclosure: https://github.com/ericcobb/SQL-Server-Permissions-Manager/blob/master/LICENSE
 		Purpose: 
 				This view returns a list of the most recent Permissions Snapshots for each database, displaying users and their assigned permissions.					
 	***************************************************************************/
 
-	SELECT [SnapshotID] = ID, [CaptureDate], [DatabaseName]
+	SELECT TOP 100 PERCENT [SnapshotID] = ID, [CaptureDate], [DatabaseName]
 			,rm.[username]
 			,rm.[PermType]
 			,rm.[Perm]
@@ -1393,85 +1564,8 @@ AS
 							,[SnapshotID]
 					FROM perms.DatabasePermissions
 					) rm ON rm.[SnapshotID] = s.ID
-	WHERE s.rn = 1;
-
-
-GO
-
-
---If our view doesn't already exist, create one with a dummy query to be overwritten.
-IF OBJECT_ID('perms.vwPerms_listCurrentDBPermissions_Filtered') IS NULL
-  EXEC sp_executesql N'CREATE VIEW [perms].[vwPerms_listCurrentDBPermissions_Filtered] AS SELECT [DB] = DB_NAME();';
-GO
-
-
-ALTER VIEW [perms].[vwPerms_listCurrentDBPermissions_Filtered]
-AS
-	/**************************************************************************
-		Author: Eric Cobb - http://www.sqlnuggets.com/
-		License:
-				MIT License
-				Copyright (c) 2017 Eric Cobb
-				View full license disclosure: https://github.com/ericcobb/SQL-Server-Metrics-Pack/blob/master/LICENSE
-		Purpose: 
-				This view returns a list of the most recent Permissions Snapshots for each database, displaying users and their assigned permissions.
-				It filters out the System databases, and the GRANT CONNECT permission 					
-	***************************************************************************/
-
-	SELECT [SnapshotID] = ID, [CaptureDate], [DatabaseName]
-			,rm.[username]
-			,rm.[PermType]
-			,rm.[Perm]
-	FROM(SELECT ID, [DatabaseName], [CaptureDate] 
-			,ROW_NUMBER() OVER (PARTITION BY [DatabaseName] ORDER BY [CaptureDate] DESC) AS rn
-		FROM perms.snapshots
-		) s
-		INNER JOIN (SELECT [PermType] = 'User-Login Mapping'
-							,[UserName] 
-							,[Perm] = 'USER ['+[UserName]+'] FROM LOGIN ' + [loginname]
-							,[SnapshotID]
-					 FROM [perms].[Users] u
-					UNION
-					SELECT [PermType] = CASE WHEN r.[roletype] = 'R' THEN 'Database Role' ELSE ' Application Role' END
-							,[UserName] = [rolename]
-							,[Perm] = NULL
-							,[SnapshotID]
-					FROM [perms].[Roles] r
-					UNION 
-					SELECT [PermType] = 'Role Memberships'
-							,[UserName]
-							,[Perm] = [rolename]
-							,[SnapshotID]
-					FROM [perms].[RoleMemberships] rm
-					UNION
-					SELECT [PermType] = 'Object Permission'
-							,[UserName]
-							,[Perm] = CASE WHEN state <> 'W' THEN [StateDesc] + SPACE(1) ELSE 'GRANT ' END
-										+ [PermissionName] 
-										+ ' ON [' +  [schemaname] + '].[' + [objectname] + '] TO [' + [username] + ']'
-										+ CASE WHEN [state] <> 'W' THEN SPACE(0) ELSE ' (WITH GRANT OPTION)' END
-							,[SnapshotID]
-					FROM [perms].[ObjectPermissions] op
-					UNION 
-					SELECT [PermType] = 'Schema Permission'
-							,[UserName]
-							,[Perm] = CASE WHEN [state] <> 'W' THEN [StateDesc] + SPACE(1) ELSE 'GRANT ' END
-										+ [PermissionName] 
-										+ ' ON [' + [schemaname] + '] TO [' + [username] + ']'
-										+ CASE WHEN [state] <> 'W' THEN SPACE(0) ELSE ' (WITH GRANT OPTION)' END
-							,[SnapshotID]
-					FROM [perms].[SchemaPermissions] 
-					UNION
-					SELECT [PermType] = 'Database Permission'
-							,[UserName]
-							,[Perm] = StateDesc + ' ' + PermissionName
-							,[SnapshotID]
-					FROM perms.DatabasePermissions
-					) rm ON rm.[SnapshotID] = s.ID
 	WHERE s.rn = 1
-	AND [DatabaseName] NOT IN ('Master','Model','MSDB','TempDB','SSISDB')
-	AND [Perm] NOT IN ('GRANT CONNECT');
+	ORDER BY [DatabaseName],[username],[PermType],[Perm];
 
 
 GO
-
