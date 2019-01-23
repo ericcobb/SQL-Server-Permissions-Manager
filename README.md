@@ -18,8 +18,10 @@ Below is a listing of the stored procedures created by SQL Server Permission Man
 This stored procedure is used to apply a Permissions Snapshot to a specified database; If a Snapshot ID is specified, it will restore that Snapshot, otherwise it defaults to the most recent Snapshot for the specified database;
 #### perms.clonePermissions
 This stored procedure is used to copy all of the permissions from a given user and assign those permissions to another user.  It will do this for every database on a server, so if a user has permissions on 3 databases, the new user and permissions will be added to those 3 databases.
-#### perms.createSnapshot
+#### perms.createDatabaseSnapshot
 This stored procedure is used to create a snapshot of the current permissions in a given database
+#### perms.createServerSnapshot
+This stored procedure is used to create a snapshot of the current server level permissions that do not apply to a specific database (ex: sysadmin, securityadmin, etc.)
 #### perms.purgeSnapshots
 This stored procedure is used to purge old Permission Snapshots from the database
 #### perms.removeAllUsersFromDB
@@ -28,5 +30,7 @@ This stored procedure is used to drop all users from a database.  Users that own
 This stored procedure is used to remove a user from all databases, then drop the login for that user.  Users that own certificates, and default system users, will not be dropped.
 #### perms.restorePerms
 This stored procedure is used to remove all users from a database, then Users will be added back using the specified (or latest) permissions snapshot for that database.
-#### perms.snapshotAllDBs
+#### perms.snapshotAllDatabases
 This stored procedure is used to create a snapshot of the current permissions in all databases on a server.
+#### perms.snapshotEverything
+This stored procedure is used to create a snapshot of the current permissions in all databases on a server, as well as the server level permissions.
