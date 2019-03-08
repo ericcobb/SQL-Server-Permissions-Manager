@@ -682,7 +682,7 @@ BEGIN
 			Tbl.Col.value('new[1]','sysname'),
 			Tbl.Col.value('DefaultSchema[1]','sysname'),
 			Tbl.Col.value('LoginName[1]','sysname'),
-			Tbl.Col.value('LoginType[1]','char(1)')
+			Tbl.Col.value('logintype[1]','char(1)')
 		FROM @AltUserNames.nodes('/altusers/user') Tbl(Col);
 	END;
 
