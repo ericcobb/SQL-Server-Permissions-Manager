@@ -1223,6 +1223,31 @@ BEGIN
 			PRINT ''Server:   '' + @@servername
 			PRINT ''Database: '' + DB_NAME()
 			
+			--clean up schemas before trying to drop users			
+			DECLARE SchemaResetCursor CURSOR LOCAL FAST_FORWARD FOR
+			SELECT name 
+			FROM sys.schemas
+			WHERE SCHEMA_ID BETWEEN 5 AND 1000
+			AND principal_id <> 1
+
+
+			OPEN SchemaResetCursor
+			FETCH NEXT FROM SchemaResetCursor INTO @UserID
+			WHILE @@FETCH_STATUS = 0
+				BEGIN
+					IF EXISTS (SELECT * FROM sys.schemas WHERE name = @UserID)
+					BEGIN
+						SELECT @SQLstmt = ''ALTER AUTHORIZATION ON SCHEMA:: ['' + @UserID + ''] TO dbo;''
+						PRINT @SQLstmt
+						EXEC (@SQLstmt)
+					END
+				FETCH NEXT FROM SchemaResetCursor INTO @UserID
+				END
+
+			CLOSE SchemaResetCursor
+			DEALLOCATE SchemaResetCursor
+
+
 			--avoid dropping users that were creating using certificates
 			DECLARE DropUserCursor CURSOR LOCAL FAST_FORWARD FOR
 			SELECT p.name FROM sys.database_principals p
